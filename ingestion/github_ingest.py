@@ -25,7 +25,7 @@ def fetch_issues():
         response = requests.get(url, headers=HEADERS)
 
         if response.status_code != 200:
-            print("Error:", response.status_code)
+            print("Error fetching issues:", response.status_code)
             break
 
         data = response.json()
@@ -35,7 +35,7 @@ def fetch_issues():
 
         issues.extend(data)
         page += 1
-        time.sleep(1)
+        time.sleep(1)  # avoid rate limit
 
     return issues
 
@@ -63,21 +63,48 @@ def fetch_comments(issue_number):
     return comments
 
 
+def fetch_issue_events(issue_number):
+    events = []
+    page = 1
+
+    while True:
+        url = f"{BASE_URL}/issues/{issue_number}/events?per_page=100&page={page}"
+        response = requests.get(url, headers=HEADERS)
+
+        if response.status_code != 200:
+            break
+
+        data = response.json()
+
+        if not data:
+            break
+
+        events.extend(data)
+        page += 1
+        time.sleep(0.5)
+
+    return events
+
+
 if __name__ == "__main__":
     os.makedirs("data/raw", exist_ok=True)
 
     issues = fetch_issues()
-
     print(f"Downloaded {len(issues)} issues")
 
     enriched_issues = []
 
     for issue in issues:
         issue_number = issue["number"]
+
         print(f"Fetching comments for issue #{issue_number}")
         comments = fetch_comments(issue_number)
-
         issue["comments_data"] = comments
+
+        print(f"Fetching timeline events for issue #{issue_number}")
+        timeline_events = fetch_issue_events(issue_number)
+        issue["timeline_events"] = timeline_events
+
         enriched_issues.append(issue)
 
     with open("data/raw/fastapi_issues.json", "w", encoding="utf-8") as f:
