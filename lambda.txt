@@ -1,0 +1,486 @@
+
+1. Overall architecture you should build
+2. Exact tech stack to use
+3. Tools + models
+4. Folder structure
+5. Step-by-step implementation plan
+6. What Layer10 is really testing for
+7. How to make your submission stand out
+
+
+# 1️⃣ High-Level Architecture You Should Build
+
+Think in 6 layers:
+
+```
+Corpus → Ingestion → Structured Extraction → Validation → Deduplication →
+Memory Graph Store → Retrieval API → Visualization UI
+```
+
+Your system should produce:
+
+* Entities
+* Claims
+* Evidence
+* Time validity
+* Merge history
+* Version tracking
+
+This is not an LLM demo.
+This is a **memory system with auditability**.
+
+---
+
+# 2️⃣ Recommended Tech Stack (Best Fit for This Project)
+
+## 🔹 Language
+
+**Python**
+Why:
+
+* Best LLM ecosystem
+* Best graph tooling
+* Best experimentation speed
+* Neo4j drivers mature
+* Easy backend API
+
+---
+
+## 🔹 Storage
+
+### Graph Store (Primary Choice)
+
+**Neo4j Community Edition (local)**
+
+Why:
+
+* Natural fit for memory graph
+* Built-in visualization (Neo4j Browser)
+* Cypher query language
+* Easy to demonstrate merges + relationships
+
+Alternative:
+
+* Postgres with adjacency tables (harder to show visually)
+* NetworkX (too toy-level)
+* ArangoDB (good but less standard)
+
+Use Neo4j.
+
+---
+
+## 🔹 LLM / Extraction
+
+Use **open-weight models locally**:
+
+### Option A (Best practical balance)
+
+* Ollama
+* Model: `mistral`, `phi`, or `llama3`
+
+### Option B (Cleaner structured extraction)
+
+* Llama 3 8B Instruct
+* Use JSON schema prompting
+
+Avoid:
+
+* LangChain heavy abstraction
+* Agent frameworks
+
+Layer10 cares about deterministic pipelines, not agents.
+
+---
+
+## 🔹 Embeddings
+
+Use:
+
+* `sentence-transformers`
+* Model: `all-MiniLM-L6-v2`
+
+For:
+
+* Entity dedup
+* Claim similarity
+* Retrieval
+
+---
+
+## 🔹 Backend API
+
+Use:
+
+* FastAPI
+
+You’ll need:
+
+* `/ask`
+* `/entity/{id}`
+* `/claim/{id}`
+* `/evidence/{id}`
+
+---
+
+## 🔹 Visualization
+
+Two good options:
+
+### Option A (Best)
+
+* Neo4j Bloom or Neo4j Browser + simple frontend
+
+### Option B (Impressive)
+
+* React + Cytoscape.js
+
+If you want fast:
+Use Neo4j + small Streamlit app.
+
+I recommend:
+
+* FastAPI backend
+* Streamlit UI
+* Neo4j graph
+* Evidence panel on right side
+
+That is clean and impressive.
+
+---
+
+# 3️⃣ Core Technical Components You Must Implement
+
+Now let’s map to the PDF requirements 
+
+---
+
+# 🔹 A) Corpus Choice
+
+Best options:
+
+### 1️⃣ Enron Email Dataset
+
+Hard mode. Great for identity resolution.
+
+### 2️⃣ GitHub Issues (Recommended)
+
+Structured + unstructured.
+Perfect for:
+
+* Entities: Users, Issues, PRs
+* Claims: Status changes, decisions
+* Evidence: Comments
+
+Use:
+
+* GitHub REST API
+* Popular repo like:
+
+  * Kubernetes
+  * FastAPI
+  * LangChain
+
+This will look cleaner.
+
+---
+
+# 🔹 B) Ontology Design (CRITICAL)
+
+You must define:
+
+## Entities
+
+* Person
+* Issue
+* Project
+* Component
+* Organization
+
+## Claims
+
+* AssignedTo
+* StatusChange
+* Decision
+* Mentions
+* DependsOn
+
+## Evidence
+
+* source_id
+* excerpt
+* timestamp
+* offset
+
+Graph structure:
+
+```
+(Person)-[:MADE_CLAIM]->(Claim)-[:SUPPORTED_BY]->(Evidence)
+(Claim)-[:ABOUT]->(Entity)
+```
+
+This is the core of Layer10 thinking.
+
+---
+
+# 🔹 C) Structured Extraction
+
+DO NOT just dump raw JSON.
+
+Do this:
+
+1. Prompt model for:
+
+   * Entities
+   * Claims
+   * Relations
+   * Evidence span offsets
+
+2. Validate with Pydantic models
+
+3. If invalid → repair pass
+
+Use:
+
+```python
+from pydantic import BaseModel
+```
+
+Make extraction deterministic:
+
+* Temperature = 0
+* Fixed schema
+* Retry if invalid
+
+---
+
+# 🔹 D) Deduplication Strategy
+
+You need 3 layers:
+
+## 1️⃣ Artifact Dedup
+
+Hash content
+Normalize whitespace
+Remove quoted text blocks
+
+## 2️⃣ Entity Canonicalization
+
+* Normalize emails
+* Lowercase names
+* Embedding similarity threshold (0.9+)
+
+## 3️⃣ Claim Dedup
+
+Same:
+
+* Subject
+* Predicate
+* Object
+* Time window
+
+Store:
+
+* Support evidence list
+* Confidence score
+
+Merges must be reversible.
+
+Create:
+
+```
+MergeEvent node:
+- merged_at
+- reason
+- similarity_score
+```
+
+That is very Layer10-like thinking.
+
+---
+
+# 🔹 E) Time Handling
+
+Two timestamps:
+
+* Event time (when email written)
+* Validity time (when claim true)
+
+For example:
+"Issue is assigned to John"
+Later:
+"Issue reassigned to Sarah"
+
+Old claim:
+valid_until = reassignment time
+
+Current claim:
+valid_until = null
+
+This is huge.
+Most candidates miss this.
+
+---
+
+# 🔹 F) Retrieval API
+
+Implement:
+
+```python
+def answer(question: str):
+    1. Extract candidate entities via embeddings
+    2. Fetch related claims
+    3. Rank by:
+        - recency
+        - confidence
+        - evidence count
+    4. Return context pack:
+        - Claims
+        - Evidence snippets
+        - Entity graph neighborhood
+```
+
+Never return something without evidence.
+
+Every answer must include:
+
+* Evidence excerpt
+* Source ID
+* Timestamp
+
+---
+
+# 🔹 G) Visualization Layer
+
+Minimum requirements:
+
+* Graph view (entities + claims)
+* Click claim → show evidence
+* Show merged aliases
+* Filter by time
+
+Use:
+
+* Streamlit + pyvis
+  or
+* Neo4j Browser with custom query panels
+
+---
+
+# 4️⃣ Folder Structure You Should Use
+
+```
+layer10-memory/
+│
+├── ingestion/
+│   ├── download.py
+│   ├── parse_corpus.py
+│
+├── extraction/
+│   ├── schema.py
+│   ├── extractor.py
+│   ├── validation.py
+│
+├── dedup/
+│   ├── artifact_dedup.py
+│   ├── entity_canonicalization.py
+│   ├── claim_merge.py
+│
+├── graph/
+│   ├── neo4j_client.py
+│   ├── graph_builder.py
+│
+├── retrieval/
+│   ├── embed.py
+│   ├── retriever.py
+│
+├── api/
+│   ├── main.py
+│
+├── ui/
+│   ├── app.py
+│
+├── writeup.md
+├── README.md
+```
+
+This shows engineering maturity.
+
+---
+
+# 5️⃣ Tools Summary
+
+| Purpose    | Tool                  |
+| ---------- | --------------------- |
+| Language   | Python                |
+| LLM        | Ollama + Llama3       |
+| Validation | Pydantic              |
+| Embeddings | sentence-transformers |
+| Graph DB   | Neo4j                 |
+| API        | FastAPI               |
+| UI         | Streamlit             |
+| Versioning | Git                   |
+
+---
+
+# 6️⃣ What Layer10 Is Actually Testing
+
+This is not an NLP test.
+
+They are testing:
+
+* Can you design an ontology?
+* Do you think about revisions over time?
+* Do you understand auditability?
+* Can you design safe merges?
+* Can you build deterministic pipelines?
+* Do you think about idempotency?
+
+This mirrors their execution graph philosophy.
+
+---
+
+# 7️⃣ How to Make It Stand Out
+
+Add:
+
+### ✅ Extraction Versioning
+
+Store:
+
+* model_version
+* prompt_hash
+* schema_version
+
+### ✅ Observability
+
+Track:
+
+* extraction failure rate
+* dedup merges count
+* conflict rate
+
+### ✅ Redaction Handling
+
+If source deleted:
+
+* mark evidence as revoked
+* downgrade claim confidence
+
+That is elite-level thinking.
+
+---
+
+# If You Want, Next Step
+
+Tell me:
+
+* Which corpus are you planning to use?
+* Your timeline?
+* Your current skill level with:
+
+  * Neo4j
+  * FastAPI
+  * LLMs
+  * Embeddings
+
+And I’ll give you a **7-day execution roadmap** tailored for you.
