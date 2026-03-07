@@ -63,7 +63,7 @@ source venv/bin/activate
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. (Optional) Install Ollama & pull model for LLM extraction
+# 3. Install Ollama & pull model for LLM extraction
 ollama pull llama3
 ```
 
