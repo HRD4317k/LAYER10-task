@@ -1,0 +1,1841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Layer10 Memory Graph Explorer</title>
+    <link rel="stylesheet" href="/ui/lib/vis-9.1.2/vis-network.css" />
+    <style>
+        /* ============================================================
+           CSS Variables & Reset
+           ============================================================ */
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #1c2333;
+            --bg-hover: #21283b;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --accent: #58a6ff;
+            --accent-hover: #79c0ff;
+            --green: #3fb950;
+            --orange: #d29922;
+            --red: #f85149;
+            --purple: #bc8cff;
+            --cyan: #39d2c0;
+            --pink: #f778ba;
+            --border: #30363d;
+            --border-focus: #58a6ff;
+            --radius: 6px;
+            --shadow: 0 3px 12px rgba(0,0,0,0.35);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           Header
+           ============================================================ */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .header h1 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header .stats {
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .header .stats .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .header .stats .stat-val {
+            color: var(--accent);
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        /* ============================================================
+           Main Layout
+           ============================================================ */
+        .main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ============================================================
+           Left Sidebar: Entity / Claim Browser
+           ============================================================ */
+        .sidebar {
+            width: 300px;
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar .search-box {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar input[type="text"] {
+            width: 100%;
+            padding: 7px 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .sidebar input:focus { border-color: var(--border-focus); }
+
+        .sidebar .filters {
+            padding: 6px 12px;
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .filter-btn {
+            padding: 3px 9px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .filter-btn.active {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .filter-btn:hover:not(.active) { border-color: var(--accent); color: var(--text-primary); }
+
+        .sidebar .list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .list-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.1s;
+        }
+
+        .list-item:hover { background: var(--bg-hover); }
+        .list-item.selected { background: var(--bg-card); border-left: 3px solid var(--accent); }
+
+        .list-item .name {
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .list-item .meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .type-badge {
+            display: inline-block;
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+            color: #fff;
+            flex-shrink: 0;
+        }
+
+        .type-Person { background: var(--green); }
+        .type-Issue { background: var(--accent); }
+        .type-Label { background: var(--orange); }
+        .type-PullRequest { background: var(--purple); }
+        .type-Component { background: var(--cyan); }
+        .type-Claim { background: var(--red); }
+
+        /* ============================================================
+           Center: Tabs + Content
+           ============================================================ */
+        .center {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            min-width: 0;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+            flex-shrink: 0;
+        }
+
+        .tab {
+            padding: 9px 18px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-secondary);
+            border-bottom: 2px solid transparent;
+            transition: all 0.15s;
+            user-select: none;
+        }
+
+        .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab:hover:not(.active) { color: var(--text-primary); }
+
+        .tab-badge {
+            display: inline-block;
+            background: var(--red);
+            color: #fff;
+            border-radius: 8px;
+            padding: 0 5px;
+            font-size: 10px;
+            font-weight: 600;
+            margin-left: 4px;
+            min-width: 16px;
+            text-align: center;
+        }
+
+        .tab-content { flex: 1; position: relative; overflow: hidden; }
+        .tab-pane { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none; overflow: hidden; }
+        .tab-pane.active { display: flex; flex-direction: column; height: 100%; }
+
+        /* ============================================================
+           Graph Pane: vis.js canvas + filter toolbar
+           ============================================================ */
+        .graph-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 14px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .graph-toolbar label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .graph-toolbar select,
+        .graph-toolbar input[type="range"],
+        .graph-toolbar input[type="date"] {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 11px;
+        }
+
+        .graph-toolbar input[type="range"] {
+            width: 80px;
+            accent-color: var(--accent);
+        }
+
+        .graph-toolbar .separator {
+            width: 1px;
+            height: 20px;
+            background: var(--border);
+        }
+
+        #graph-container {
+            flex: 1 1 0;
+            position: relative;
+            overflow: hidden;
+            min-height: 0;
+            /* Fallback in case flex height chain breaks */
+            height: calc(100vh - 130px);
+        }
+
+        #graph-canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .graph-legend {
+            position: absolute;
+            bottom: 12px;
+            left: 12px;
+            background: rgba(22, 27, 34, 0.92);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 8px 12px;
+            font-size: 11px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .graph-legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .graph-legend .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* ============================================================
+           Retrieval Pane
+           ============================================================ */
+        .retrieval-pane {
+            padding: 16px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .retrieval-input {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .retrieval-input input {
+            flex: 1;
+            padding: 9px 12px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+        }
+
+        .retrieval-input input:focus { border-color: var(--border-focus); }
+
+        .btn-primary {
+            padding: 9px 18px;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: background 0.15s;
+        }
+
+        .btn-primary:hover { background: var(--accent-hover); }
+        .btn-primary:disabled { opacity: 0.5; cursor: default; }
+
+        .context-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+            margin-bottom: 10px;
+            transition: border-color 0.15s;
+        }
+
+        .context-item:hover { border-color: var(--accent); }
+
+        .context-item .ci-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .rank-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--accent);
+            color: #fff;
+            border-radius: 50%;
+            width: 22px;
+            height: 22px;
+            font-size: 11px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .ci-header .claim-type { font-size: 11px; color: var(--accent); font-weight: 600; }
+        .ci-header .score { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+
+        .ci-body { font-size: 13px; line-height: 1.5; }
+
+        .evidence-snippet {
+            background: var(--bg-primary);
+            border-left: 3px solid var(--accent);
+            padding: 8px 12px;
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            border-radius: 0 4px 4px 0;
+            line-height: 1.5;
+        }
+
+        .evidence-snippet .ev-source {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            font-size: 11px;
+        }
+
+        .evidence-snippet .ev-source a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .evidence-snippet .ev-source a:hover { text-decoration: underline; }
+
+        .evidence-snippet .offset-tag {
+            background: var(--bg-card);
+            border-radius: 3px;
+            padding: 1px 4px;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
+        /* ============================================================
+           Conflicts Pane
+           ============================================================ */
+        .conflicts-pane {
+            padding: 16px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .conflict-summary {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .summary-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 10px 16px;
+            text-align: center;
+            min-width: 100px;
+        }
+
+        .summary-card .sc-val {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .summary-card .sc-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .summary-card.sev-high .sc-val { color: var(--text-primary); }
+        .summary-card.sev-medium .sc-val { color: var(--text-primary); }
+        .summary-card.sev-low .sc-val { color: var(--text-primary); }
+
+        .conflict-filters {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+
+        .conflict-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+            margin-bottom: 8px;
+            transition: border-color 0.15s;
+            cursor: pointer;
+        }
+
+        .conflict-card:hover { border-color: var(--accent); }
+
+        .conflict-card .cc-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .severity-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 3px;
+            text-transform: uppercase;
+        }
+
+        .sev-high { background: var(--red); color: #fff; }
+        .sev-medium { background: var(--orange); color: #fff; }
+        .sev-low { background: #30363d; color: var(--text-secondary); }
+
+        .conflict-card .cc-type {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .conflict-card .cc-issue {
+            font-size: 11px;
+            color: var(--accent);
+            margin-left: auto;
+        }
+
+        .conflict-card .cc-desc {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .conflict-card .cc-evidence {
+            margin-top: 6px;
+        }
+
+        /* ============================================================
+           Merges Pane
+           ============================================================ */
+        .merges-pane {
+            padding: 16px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .merge-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+
+        .merge-card .mc-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .merge-type-badge {
+            font-size: 10px;
+            text-transform: uppercase;
+            color: var(--purple);
+            font-weight: 700;
+        }
+
+        .merge-card .mc-detail {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.4;
+            margin-bottom: 6px;
+        }
+
+        .btn-danger {
+            padding: 4px 10px;
+            font-size: 11px;
+            background: var(--red);
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn-danger:hover { opacity: 0.85; }
+
+        /* ============================================================
+           Right Panel: Detail / Evidence
+           ============================================================ */
+        .detail-panel {
+            width: 370px;
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 14px;
+            flex-shrink: 0;
+        }
+
+        .detail-panel h3 {
+            font-size: 15px;
+            margin-bottom: 10px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .detail-section {
+            margin-bottom: 14px;
+        }
+
+        .detail-section h4 {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .detail-section .value {
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+        }
+
+        .evidence-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 10px;
+            margin-bottom: 6px;
+            transition: border-color 0.15s;
+        }
+
+        .evidence-card:hover { border-color: var(--accent); }
+
+        .evidence-card .excerpt {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-style: italic;
+            line-height: 1.5;
+            margin-bottom: 4px;
+            max-height: 80px;
+            overflow: hidden;
+        }
+
+        .evidence-card .excerpt mark {
+            background: rgba(88,166,255,0.2);
+            color: var(--accent);
+            border-radius: 2px;
+            padding: 0 2px;
+        }
+
+        .evidence-card .ev-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .evidence-card .ev-meta a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .evidence-card .ev-meta a:hover { text-decoration: underline; }
+
+        .confidence-meter {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .confidence-bar {
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            overflow: hidden;
+            flex: 1;
+            max-width: 100px;
+        }
+
+        .confidence-bar .fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+
+        .confidence-val {
+            font-size: 11px;
+            font-weight: 600;
+            min-width: 32px;
+        }
+
+        .alias-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .alias-tag {
+            padding: 2px 7px;
+            background: var(--bg-primary);
+            border-radius: 3px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .claim-row {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 8px 10px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+
+        .claim-row:hover { border-color: var(--accent); }
+
+        .claim-row .cr-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .claim-row .cr-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* ============================================================
+           Utilities
+           ============================================================ */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--border);
+            border-top: 2px solid var(--accent);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--bg-card);
+            border: 1px solid var(--accent);
+            color: var(--text-primary);
+            padding: 10px 16px;
+            border-radius: var(--radius);
+            font-size: 13px;
+            box-shadow: var(--shadow);
+            z-index: 100;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+<!-- =================================================================
+     HEADER
+     ================================================================= -->
+<div class="header">
+    <h1>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
+            <line x1="12" y1="22" x2="12" y2="15.5"/>
+            <polyline points="22 8.5 12 15.5 2 8.5"/>
+            <polyline points="2 15.5 12 8.5 22 15.5"/>
+            <line x1="12" y1="2" x2="12" y2="8.5"/>
+        </svg>
+        Layer10 Memory Graph
+    </h1>
+    <div class="stats">
+        <div class="stat-item">Entities <span class="stat-val" id="stat-entities">–</span></div>
+        <div class="stat-item">Claims <span class="stat-val" id="stat-claims">–</span></div>
+        <div class="stat-item">Events <span class="stat-val" id="stat-events">–</span></div>
+        <div class="stat-item">Conflicts <span class="stat-val" id="stat-conflicts" style="color:var(--orange)">–</span></div>
+    </div>
+</div>
+
+<!-- =================================================================
+     MAIN LAYOUT
+     ================================================================= -->
+<div class="main">
+
+    <!-- Left sidebar -->
+    <div class="sidebar">
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="Search entities & claims…" />
+        </div>
+        <div class="filters">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="Person">Person</button>
+            <button class="filter-btn" data-filter="Issue">Issue</button>
+            <button class="filter-btn" data-filter="PullRequest">PR</button>
+            <button class="filter-btn" data-filter="Label">Label</button>
+            <button class="filter-btn" data-filter="Claim">Claims</button>
+        </div>
+        <div class="list" id="entity-list">
+            <div class="loading"><div class="spinner"></div>Loading…</div>
+        </div>
+    </div>
+
+    <!-- Center -->
+    <div class="center">
+        <div class="tabs">
+            <div class="tab active" data-tab="graph">Graph</div>
+            <div class="tab" data-tab="retrieve">Retrieve</div>
+            <div class="tab" data-tab="conflicts">Conflicts <span class="tab-badge" id="conflict-badge" style="display:none">0</span></div>
+            <div class="tab" data-tab="merges">Merges</div>
+        </div>
+        <div class="tab-content">
+
+            <!-- GRAPH pane -->
+            <div class="tab-pane active" id="pane-graph">
+                <div class="graph-toolbar">
+                    <label>Type:
+                        <select id="graph-filter-type">
+                            <option value="all">All nodes</option>
+                            <option value="Person">Person</option>
+                            <option value="Issue">Issue</option>
+                            <option value="PullRequest">PR</option>
+                            <option value="Label">Label</option>
+                            <option value="Claim">Claim</option>
+                        </select>
+                    </label>
+                    <div class="separator"></div>
+                    <label>Min confidence:
+                        <input type="range" id="graph-filter-conf" min="0" max="100" value="0" />
+                        <span id="conf-val">0%</span>
+                    </label>
+                    <div class="separator"></div>
+                    <label>After:
+                        <input type="date" id="graph-filter-from" />
+                    </label>
+                    <label>Before:
+                        <input type="date" id="graph-filter-to" />
+                    </label>
+                    <div class="separator"></div>
+                    <button class="btn-primary" id="graph-reset-btn" style="padding:4px 10px;font-size:11px;">Reset</button>
+                </div>
+                <div id="graph-container">
+                    <div id="graph-canvas"></div>
+                    <div class="graph-legend">
+                        <div class="legend-item"><span class="dot" style="background:#3fb950"></span> Person</div>
+                        <div class="legend-item"><span class="dot" style="background:#58a6ff"></span> Issue</div>
+                        <div class="legend-item"><span class="dot" style="background:#bc8cff"></span> PR</div>
+                        <div class="legend-item"><span class="dot" style="background:#d29922"></span> Label</div>
+                        <div class="legend-item"><span class="dot" style="background:#f85149"></span> Claim</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RETRIEVE pane -->
+            <div class="tab-pane" id="pane-retrieve">
+                <div class="retrieval-pane">
+                    <div class="retrieval-input">
+                        <input type="text" id="query-input" placeholder="Ask: 'What issues mention performance?' or 'Who worked on issue 15023?'" />
+                        <button class="btn-primary" id="query-btn">Retrieve</button>
+                    </div>
+                    <div id="retrieval-results">
+                        <div class="empty-state">
+                            Enter a natural-language question above. The retrieval engine will find
+                            relevant entities, claims, and evidence from the memory graph.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CONFLICTS pane -->
+            <div class="tab-pane" id="pane-conflicts">
+                <div class="conflicts-pane">
+                    <div id="conflict-summary"></div>
+                    <div class="conflict-filters" id="conflict-filters"></div>
+                    <div id="conflicts-list">
+                        <div class="loading"><div class="spinner"></div>Loading conflicts…</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MERGES pane -->
+            <div class="tab-pane" id="pane-merges">
+                <div class="merges-pane" id="merges-list">
+                    <div class="loading"><div class="spinner"></div>Loading merges…</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Right: Detail / Evidence panel -->
+    <div class="detail-panel" id="detail-panel">
+        <div class="empty-state">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="1">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <p style="margin-top:12px">Select an entity, claim, or graph node<br>to view details and evidence</p>
+        </div>
+    </div>
+</div>
+
+<!-- ================================================================= -->
+<!-- vis.js — local first, CDN fallback                                -->
+<!-- ================================================================= -->
+<script src="/ui/lib/vis-9.1.2/vis-network.min.js"></script>
+<script>
+if (typeof vis === 'undefined' || typeof vis.Network === 'undefined') {
+    console.warn('Local vis.js failed — loading CDN fallback');
+    var s = document.createElement('script');
+    s.src = 'https://unpkg.com/vis-network@9.1.2/standalone/umd/vis-network.min.js';
+    document.head.appendChild(s);
+}
+</script>
+<script>
+/* ==================================================================
+   GLOBAL STATE
+   ================================================================== */
+const API = '';
+let entities = [];
+let claims = [];
+let allItems = [];
+let currentFilter = 'all';
+let network = null;
+let graphData = null;
+let conflictsData = null;
+let currentConflictFilter = 'all';
+
+/* ==================================================================
+   API HELPERS
+   ================================================================== */
+async function apiGet(path) {
+    const r = await fetch(API + path);
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+}
+
+async function apiPost(path, body) {
+    const r = await fetch(API + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    return r.json();
+}
+
+function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function confColor(c) {
+    return c > 0.7 ? 'var(--green)' : c > 0.4 ? 'var(--orange)' : 'var(--red)';
+}
+
+function toast(msg) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3000);
+}
+
+/* ==================================================================
+   LOAD DATA
+   ================================================================== */
+async function loadData() {
+    try {
+        const [entResp, clmResp, metricsResp, graphResp] = await Promise.all([
+            apiGet('/api/entities?limit=500'),
+            apiGet('/api/claims?limit=500'),
+            apiGet('/api/metrics'),
+            apiGet('/api/graph'),
+        ]);
+
+        entities = entResp.entities || [];
+        claims = clmResp.claims || [];
+        graphData = graphResp;
+
+        console.log('Data loaded:', entities.length, 'entities,', claims.length, 'claims, graph:', (graphData.nodes||[]).length, 'nodes,', (graphData.edges||[]).length, 'edges');
+
+        buildList();
+        updateStats(metricsResp);
+        // Delay graph render to let the DOM layout settle
+        setTimeout(renderGraph, 300);
+        loadConflicts();
+        loadMerges();
+    } catch (err) {
+        console.error('Load failed:', err);
+        document.getElementById('entity-list').innerHTML =
+            '<div class="empty-state">Failed to connect to API.<br>Start: <code>py -m uvicorn api.server:app --reload</code></div>';
+    }
+}
+
+function updateStats(m) {
+    document.getElementById('stat-entities').textContent = m.total_entities || 0;
+    document.getElementById('stat-claims').textContent = m.total_claims || 0;
+    document.getElementById('stat-events').textContent = m.total_events || 0;
+    document.getElementById('stat-conflicts').textContent = m.total_conflicts || 0;
+    if (m.total_conflicts > 0) {
+        const badge = document.getElementById('conflict-badge');
+        badge.textContent = m.total_conflicts;
+        badge.style.display = 'inline-block';
+    }
+}
+
+/* ==================================================================
+   SIDEBAR LIST
+   ================================================================== */
+function buildList() {
+    allItems = [];
+    entities.forEach(e => allItems.push({ ...e, _kind: 'entity' }));
+    claims.forEach(c => allItems.push({ ...c, _kind: 'claim' }));
+    renderList();
+}
+
+function renderList() {
+    const q = document.getElementById('search-input').value.toLowerCase();
+    const list = document.getElementById('entity-list');
+    let items = allItems;
+
+    if (currentFilter === 'Claim') {
+        items = items.filter(i => i._kind === 'claim');
+    } else if (currentFilter !== 'all') {
+        items = items.filter(i => i.entity_type === currentFilter);
+    }
+
+    if (q) {
+        items = items.filter(i => {
+            const name = (i.canonical_name || i.predicate || i.claim_type || '').toLowerCase();
+            const aliases = (i.aliases || []).join(' ').toLowerCase();
+            const subject = (i.subject || '').toLowerCase();
+            return name.includes(q) || aliases.includes(q) || subject.includes(q);
+        });
+    }
+
+    if (items.length === 0) {
+        list.innerHTML = '<div class="empty-state">No results</div>';
+        return;
+    }
+
+    const shown = items.slice(0, 300);
+    list.innerHTML = shown.map(item => {
+        if (item._kind === 'entity') {
+            return `<div class="list-item" onclick="selectEntity('${item.entity_id}')">
+                <div class="name">
+                    <span class="type-badge type-${item.entity_type}">${item.entity_type}</span>
+                    ${esc(item.canonical_name)}
+                </div>
+                <div class="meta">${(item.aliases||[]).length} alias · ${(item.source_ids||[]).length} src</div>
+            </div>`;
+        } else {
+            return `<div class="list-item" onclick="selectClaim('${item.claim_id}')">
+                <div class="name">
+                    <span class="type-badge type-Claim">${item.claim_type||'Claim'}</span>
+                    ${esc(item.predicate || item.claim_type || 'claim')}
+                </div>
+                <div class="meta">${esc(item.subject||'')} → ${esc(item.object||'–')} · conf ${(item.confidence||0).toFixed(2)}</div>
+            </div>`;
+        }
+    }).join('') + (items.length > 300 ? `<div class="empty-state">Showing 300 of ${items.length}</div>` : '');
+}
+
+/* ==================================================================
+   DETAIL / EVIDENCE PANEL
+   ================================================================== */
+async function selectEntity(entityId) {
+    const p = document.getElementById('detail-panel');
+    p.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
+
+    // Highlight in sidebar
+    document.querySelectorAll('.list-item.selected').forEach(el => el.classList.remove('selected'));
+
+    try {
+        const data = await apiGet(`/api/entities/${entityId}`);
+        const e = data.entity;
+        const relClaims = data.claims || [];
+
+        p.innerHTML = `
+            <h3><span class="type-badge type-${e.entity_type}">${e.entity_type}</span> ${esc(e.canonical_name)}</h3>
+
+            <div class="detail-section">
+                <h4>Aliases</h4>
+                <div class="alias-list">
+                    ${(e.aliases||[]).map(a => `<span class="alias-tag">${esc(a)}</span>`).join('')}
+                    ${(e.aliases||[]).length === 0 ? '<span class="value">None</span>' : ''}
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <h4>Timeline</h4>
+                <div class="value">First seen: ${e.first_seen || '–'}<br>Last seen: ${e.last_seen || '–'}</div>
+            </div>
+
+            ${Object.keys(e.properties||{}).length>0 ? `
+            <div class="detail-section">
+                <h4>Properties</h4>
+                <div class="value"><pre style="font-size:11px;color:var(--text-secondary);white-space:pre-wrap">${esc(JSON.stringify(e.properties,null,2))}</pre></div>
+            </div>` : ''}
+
+            <div class="detail-section">
+                <h4>Related Claims (${relClaims.length})</h4>
+                ${relClaims.length === 0 ? '<div class="value">No claims reference this entity</div>' : ''}
+                ${relClaims.map(c => `
+                    <div class="claim-row" onclick="selectClaim('${c.claim_id||''}')">
+                        <div class="cr-head">
+                            <span class="type-badge type-Claim">${c.claim_type||'Generic'}</span>
+                            <span>${esc(c.predicate||'')} → ${esc(c.object||'–')}</span>
+                        </div>
+                        <div class="cr-meta">
+                            <span class="confidence-meter">
+                                <span class="confidence-bar"><span class="fill" style="width:${(c.confidence||0)*100}%;background:${confColor(c.confidence||0)}"></span></span>
+                                <span class="confidence-val" style="color:${confColor(c.confidence||0)}">${(c.confidence||0).toFixed(2)}</span>
+                            </span>
+                            · ${(c.evidence||[]).length} evidence
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+
+            <div class="detail-section">
+                <h4>Source IDs (${(e.source_ids||[]).length})</h4>
+                <div class="value" style="font-size:11px;word-break:break-all;">
+                    ${(e.source_ids||[]).slice(0,8).join('<br>')}
+                    ${(e.source_ids||[]).length > 8 ? '<br>…' + ((e.source_ids||[]).length-8) + ' more' : ''}
+                </div>
+            </div>
+        `;
+
+        highlightGraphNode(entityId);
+    } catch (err) {
+        p.innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+    }
+}
+
+async function selectClaim(claimId) {
+    const p = document.getElementById('detail-panel');
+    p.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>';
+
+    try {
+        const data = await apiGet(`/api/claims/${claimId}`);
+        const c = data.claim;
+
+        p.innerHTML = `
+            <h3><span class="type-badge type-Claim">${c.claim_type||'Claim'}</span> ${esc(c.predicate||c.claim_type||'')}</h3>
+
+            <div class="detail-section">
+                <h4>Subject → Object</h4>
+                <div class="value" style="font-size:13px">${esc(c.subject||'–')} <strong style="color:var(--accent)">→</strong> ${esc(c.object||'–')}</div>
+            </div>
+
+            ${c.value ? `<div class="detail-section"><h4>Value</h4><div class="value">${esc(c.value)}</div></div>` : ''}
+
+            <div class="detail-section">
+                <h4>Status</h4>
+                <div class="value">${c.status || 'active'}</div>
+            </div>
+
+            <div class="detail-section">
+                <h4>Confidence</h4>
+                <div class="confidence-meter">
+                    <span class="confidence-bar" style="max-width:150px"><span class="fill" style="width:${(c.confidence||0)*100}%;background:${confColor(c.confidence||0)}"></span></span>
+                    <span class="confidence-val" style="color:${confColor(c.confidence||0)}">${(c.confidence||0).toFixed(3)}</span>
+                </div>
+            </div>
+
+            <div class="detail-section">
+                <h4>Evidence (${(c.evidence||[]).length})</h4>
+                ${(c.evidence||[]).length === 0 ? '<div class="value">No evidence attached</div>' : ''}
+                ${(c.evidence||[]).map((ev, idx) => `
+                    <div class="evidence-card">
+                        <div class="excerpt">"${esc((ev.excerpt||'').substring(0, 400))}"</div>
+                        <div class="ev-meta">
+                            <span>📄 ${esc(ev.source_id || ev.issue_id || '–')}</span>
+                            ${ev.char_offsets ? `<span class="offset-tag">chars ${ev.char_offsets[0]}–${ev.char_offsets[1]}</span>` : ''}
+                            ${ev.char_offset_start != null ? `<span class="offset-tag">offset ${ev.char_offset_start}–${ev.char_offset_end||'?'}</span>` : ''}
+                            ${ev.source_url ? `<a href="${ev.source_url}" target="_blank">↗ GitHub</a>` : ''}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+
+            ${c.extraction_meta ? `
+            <div class="detail-section">
+                <h4>Extraction Metadata</h4>
+                <div class="value" style="font-size:11px">
+                    Model: ${c.extraction_meta.model || '–'}<br>
+                    Schema: v${c.extraction_meta.schema_version || '–'}<br>
+                    Prompt hash: <code style="color:var(--text-muted)">${c.extraction_meta.prompt_hash || '–'}</code><br>
+                    Extracted: ${c.extraction_meta.extracted_at || '–'}
+                </div>
+            </div>` : ''}
+
+            <div class="detail-section">
+                <h4>Support</h4>
+                <div class="value">${c.support_count || 1} supporting observation(s) · ${(c.source_ids||[]).length} source(s)</div>
+            </div>
+        `;
+    } catch (err) {
+        p.innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+    }
+}
+
+/* ==================================================================
+   GRAPH RENDERING  (vis.js with filters)
+   ================================================================== */
+const NODE_COLORS = {
+    Person: '#3fb950',
+    Issue: '#58a6ff',
+    PullRequest: '#bc8cff',
+    Label: '#d29922',
+    Claim: '#f85149',
+    Component: '#39d2c0',
+    Milestone: '#f778ba',
+    Team: '#f0883e',
+};
+
+const NODE_SHAPES = {
+    Person: 'dot',
+    Issue: 'box',
+    PullRequest: 'box',
+    Label: 'diamond',
+    Claim: 'triangle',
+    Component: 'triangle',
+    Milestone: 'star',
+    Team: 'square',
+};
+
+function getFilteredGraph() {
+    if (!graphData || !graphData.nodes) return { nodes: [], edges: [] };
+
+    const typeFilter = document.getElementById('graph-filter-type').value;
+    const confThreshold = parseInt(document.getElementById('graph-filter-conf').value, 10) / 100;
+    const fromDate = document.getElementById('graph-filter-from').value;
+    const toDate = document.getElementById('graph-filter-to').value;
+
+    let nodes = graphData.nodes;
+    let edges = graphData.edges || [];
+
+    // Filter by type
+    if (typeFilter !== 'all') {
+        const nodeIds = new Set();
+        nodes = nodes.filter(n => {
+            if (n.type === typeFilter) { nodeIds.add(n.id); return true; }
+            return false;
+        });
+        edges = edges.filter(e => nodeIds.has(e.from) || nodeIds.has(e.to));
+        // Also include connected nodes
+        const connectedIds = new Set();
+        edges.forEach(e => { connectedIds.add(e.from); connectedIds.add(e.to); });
+        const extraNodes = graphData.nodes.filter(n => connectedIds.has(n.id) && !nodeIds.has(n.id));
+        nodes = nodes.concat(extraNodes);
+    }
+
+    // Filter by time
+    if (fromDate || toDate) {
+        const nodeIds = new Set();
+        nodes = nodes.filter(n => {
+            const t = n.first_seen || n.timestamp || '';
+            if (fromDate && t && t < fromDate) return false;
+            if (toDate && t && t > toDate + 'T23:59:59Z') return false;
+            nodeIds.add(n.id);
+            return true;
+        });
+        edges = edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
+    }
+
+    return { nodes, edges };
+}
+
+function renderGraph() {
+    try {
+    if (typeof vis === 'undefined') {
+        console.error('vis.js not loaded — check script src');
+        document.getElementById('graph-canvas').innerHTML = '<div style="padding:30px;color:var(--red)">vis.js library failed to load</div>';
+        return;
+    }
+    const { nodes: filteredNodes, edges: filteredEdges } = getFilteredGraph();
+
+    const container = document.getElementById('graph-canvas');
+    if (!container) { console.error('graph-canvas element not found'); return; }
+
+    // Compute canvas size from viewport — bypasses CSS flex-height issues
+    const toolbar = document.querySelector('.graph-toolbar');
+    const toolbarBottom = toolbar ? toolbar.getBoundingClientRect().bottom : 100;
+    const sidebar = document.querySelector('.sidebar');
+    const sidebarW = sidebar ? sidebar.offsetWidth : 300;
+    const detailPanel = document.getElementById('detail-panel');
+    const detailW = detailPanel ? detailPanel.offsetWidth : 0;
+    const availW = Math.max(window.innerWidth - sidebarW - detailW - 4, 300);
+    const availH = Math.max(window.innerHeight - toolbarBottom - 4, 300);
+    container.style.width  = availW + 'px';
+    container.style.height = availH + 'px';
+
+    console.log('renderGraph:', filteredNodes.length, 'nodes,', filteredEdges.length, 'edges, container:', availW + 'x' + availH);
+
+    if (filteredNodes.length === 0) {
+        container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted)">No graph data — run the pipeline first</div>';
+        return;
+    }
+
+    // Cap node count for smooth rendering; show top connected nodes
+    let displayNodes = filteredNodes;
+    let displayEdges = filteredEdges;
+    const MAX_NODES = 200;
+    if (displayNodes.length > MAX_NODES) {
+        // Prefer nodes with most connections
+        const edgeCount = {};
+        displayEdges.forEach(e => {
+            edgeCount[e.from] = (edgeCount[e.from] || 0) + 1;
+            edgeCount[e.to] = (edgeCount[e.to] || 0) + 1;
+        });
+        displayNodes = [...displayNodes].sort((a, b) => (edgeCount[b.id] || 0) - (edgeCount[a.id] || 0)).slice(0, MAX_NODES);
+        const nodeIdSet = new Set(displayNodes.map(n => n.id));
+        displayEdges = displayEdges.filter(e => nodeIdSet.has(e.from) && nodeIdSet.has(e.to));
+        console.log('Capped graph to', displayNodes.length, 'nodes,', displayEdges.length, 'edges');
+    }
+
+    // Show loading text in container while physics stabilizes
+    container.innerHTML = '';
+
+    const nodes = new vis.DataSet(displayNodes.map(n => ({
+        id: n.id,
+        label: (n.label || '').substring(0, 30),
+        color: { background: NODE_COLORS[n.type] || '#58a6ff', border: 'transparent', highlight: { background: '#fff', border: NODE_COLORS[n.type] || '#58a6ff' } },
+        shape: NODE_SHAPES[n.type] || 'dot',
+        size: n.type === 'Issue' || n.type === 'PullRequest' ? 16 : 12,
+        font: { color: '#e6edf3', size: 10, strokeWidth: 2, strokeColor: '#0d1117' },
+        title: `${n.type}: ${n.label}\n${(n.aliases||[]).join(', ')}`,
+    })));
+
+    const edges = new vis.DataSet(displayEdges.slice(0, 2000).map((e, i) => ({
+        id: 'e' + i,
+        from: e.from,
+        to: e.to,
+        color: { color: '#30363d', highlight: '#58a6ff', opacity: 0.6 },
+        font: { color: '#6e7681', size: 8, align: 'middle', strokeWidth: 0 },
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+        smooth: { enabled: true, type: 'dynamic' },
+        title: e.label || '',
+    })));
+
+    const options = {
+        physics: {
+            enabled: true,
+            barnesHut: {
+                gravitationalConstant: -3000,
+                centralGravity: 0.25,
+                springLength: 100,
+                springConstant: 0.04,
+                damping: 0.3,
+                avoidOverlap: 0.2,
+            },
+            stabilization: {
+                enabled: true,
+                iterations: 80,
+                updateInterval: 25,
+                fit: true,
+            },
+            maxVelocity: 50,
+        },
+        interaction: { hover: true, tooltipDelay: 150, multiselect: true, zoomView: true, dragView: true },
+        nodes: { borderWidth: 1, borderWidthSelected: 2 },
+        edges: { width: 0.8 },
+    };
+
+    // Destroy old network if exists
+    if (network) { network.destroy(); network = null; }
+
+    network = new vis.Network(container, { nodes, edges }, options);
+
+    // Fit after stabilization ends
+    network.on('stabilizationIterationsDone', () => {
+        network.fit({ animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+    });
+
+    network.on('click', params => {
+        if (params.nodes.length > 0) {
+            const nodeId = params.nodes[0];
+            const ent = entities.find(e => e.entity_id === nodeId);
+            if (ent) selectEntity(nodeId);
+            else selectClaim(nodeId);
+        }
+    });
+
+    network.on('hoverNode', () => { container.style.cursor = 'pointer'; });
+    network.on('blurNode', () => { container.style.cursor = 'default'; });
+
+    } catch (err) {
+        console.error('renderGraph error:', err);
+        // Show error prominently — both in container and as a page-level banner
+        const container = document.getElementById('graph-canvas');
+        if (container) container.innerHTML = '<div style="padding:30px;color:#f85149;font-size:14px;">Graph render error: ' + err.message + '<br><pre style="margin-top:10px;font-size:11px;color:#8b949e;">' + err.stack + '</pre></div>';
+        // Also add banner at top of page
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:#da3633;color:#fff;padding:8px 16px;font-size:13px;position:fixed;top:0;left:0;right:0;z-index:9999;';
+        banner.textContent = 'Graph Error: ' + err.message;
+        document.body.prepend(banner);
+    }
+}
+
+function highlightGraphNode(nodeId) {
+    if (network) {
+        try {
+            network.selectNodes([nodeId]);
+            network.focus(nodeId, { scale: 1.2, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+        } catch (_) {}
+    }
+}
+
+// Graph filter event handlers
+document.getElementById('graph-filter-type').addEventListener('change', renderGraph);
+document.getElementById('graph-filter-conf').addEventListener('input', e => {
+    document.getElementById('conf-val').textContent = e.target.value + '%';
+    renderGraph();
+});
+document.getElementById('graph-filter-from').addEventListener('change', renderGraph);
+document.getElementById('graph-filter-to').addEventListener('change', renderGraph);
+document.getElementById('graph-reset-btn').addEventListener('click', () => {
+    document.getElementById('graph-filter-type').value = 'all';
+    document.getElementById('graph-filter-conf').value = 0;
+    document.getElementById('conf-val').textContent = '0%';
+    document.getElementById('graph-filter-from').value = '';
+    document.getElementById('graph-filter-to').value = '';
+    renderGraph();
+});
+
+/* ==================================================================
+   RETRIEVAL
+   ================================================================== */
+async function runRetrieval() {
+    const question = document.getElementById('query-input').value.trim();
+    if (!question) return;
+
+    const results = document.getElementById('retrieval-results');
+    const btn = document.getElementById('query-btn');
+    btn.disabled = true;
+    results.innerHTML = '<div class="loading"><div class="spinner"></div>Retrieving…</div>';
+
+    try {
+        const pack = await apiPost('/api/retrieve', { question, max_items: 10 });
+        btn.disabled = false;
+
+        if (!pack.items || pack.items.length === 0) {
+            results.innerHTML = '<div class="empty-state">No results found for that query.</div>';
+            return;
+        }
+
+        let html = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);">
+            <span><strong style="color:var(--accent)">${pack.items.length}</strong> items</span>
+            <span>·</span>
+            <span><strong>${pack.total_evidence_count||0}</strong> evidence</span>
+            <span>·</span>
+            <span><strong>${(pack.entities_mentioned||[]).length}</strong> entities</span>
+            ${pack.conflicts && pack.conflicts.length > 0 ? `<span>· <span style="color:var(--orange)">⚠ ${pack.conflicts.length} conflict(s)</span></span>` : ''}
+        </div>`;
+
+        pack.items.forEach(item => {
+            const c = item.claim || {};
+            html += `
+            <div class="context-item">
+                <div class="ci-header">
+                    <span class="rank-badge">${item.rank}</span>
+                    <span class="claim-type">${c.claim_type || 'Generic'}</span>
+                    <span class="score">
+                        score ${(item.relevance_score||0).toFixed(2)}
+                        · <span style="color:${item.grounding_status === 'grounded' ? 'var(--green)' : 'var(--orange)'}">${item.grounding_status||'–'}</span>
+                    </span>
+                </div>
+                <div class="ci-body">
+                    ${esc(c.subject||'')} <strong style="color:var(--accent)">${esc(c.predicate||'')}</strong> ${esc(c.object||'')}
+                    ${c.value ? ` = <em>${esc(c.value)}</em>` : ''}
+                </div>
+                ${(item.evidence_snippets||[]).map(ev => `
+                    <div class="evidence-snippet">
+                        "${esc((ev.excerpt||'').substring(0,300))}"
+                        <div class="ev-source">
+                            <span>📄 ${esc(ev.source_id || ev.issue_id || '')}</span>
+                            ${ev.char_offset_start != null ? `<span class="offset-tag">chars ${ev.char_offset_start}–${ev.char_offset_end||''}</span>` : ''}
+                            ${ev.source_url ? `<a href="${ev.source_url}" target="_blank">↗ source</a>` : ''}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>`;
+        });
+
+        // Conflicts
+        if (pack.conflicts && pack.conflicts.length > 0) {
+            html += `<h4 style="color:var(--orange);margin:16px 0 8px;font-size:13px;">⚠ Related Conflicts</h4>`;
+            pack.conflicts.forEach(cf => {
+                html += `<div class="conflict-card" style="cursor:default">
+                    <div class="cc-header">
+                        <span class="severity-badge sev-${cf.severity||'low'}">${cf.severity||'low'}</span>
+                        <span class="cc-type">${cf.conflict_type}</span>
+                        <span class="cc-issue">${cf.issue_id||cf.subject||''}</span>
+                    </div>
+                    <div class="cc-desc">${esc(cf.description||'')}</div>
+                </div>`;
+            });
+        }
+
+        // Citations
+        if (pack.citations && pack.citations.length > 0) {
+            html += '<h4 style="color:var(--text-muted);margin:16px 0 8px;font-size:12px;">📎 Citations</h4>';
+            html += '<div style="font-size:11px;color:var(--text-muted);line-height:1.6;">';
+            pack.citations.slice(0,10).forEach((cit, i) => {
+                html += `[${i+1}] ${esc(cit.source_id)} — "${esc((cit.excerpt||'').substring(0,120))}"<br>`;
+            });
+            html += '</div>';
+        }
+
+        results.innerHTML = html;
+    } catch (err) {
+        btn.disabled = false;
+        results.innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+    }
+}
+
+/* ==================================================================
+   CONFLICTS
+   ================================================================== */
+async function loadConflicts() {
+    try {
+        const data = await apiGet('/api/conflicts');
+        conflictsData = data;
+        const conflicts = data.conflicts || [];
+        const summary = data.summary || {};
+
+        // Summary cards
+        const smry = document.getElementById('conflict-summary');
+        smry.innerHTML = `
+            <div class="conflict-summary">
+                <div class="summary-card">
+                    <div class="sc-val">${summary.total_conflicts || conflicts.length}</div>
+                    <div class="sc-label">Total</div>
+                </div>
+                <div class="summary-card sev-high">
+                    <div class="sc-val">${summary.high_severity || 0}</div>
+                    <div class="sc-label">High</div>
+                </div>
+                <div class="summary-card sev-medium">
+                    <div class="sc-val">${summary.medium_severity || 0}</div>
+                    <div class="sc-label">Medium</div>
+                </div>
+                <div class="summary-card sev-low">
+                    <div class="sc-val">${summary.low_severity || 0}</div>
+                    <div class="sc-label">Low</div>
+                </div>
+            </div>
+        `;
+
+        // Type filter buttons
+        const types = [...new Set(conflicts.map(c => c.conflict_type))];
+        const filtersEl = document.getElementById('conflict-filters');
+        filtersEl.innerHTML = `
+            <button class="filter-btn active" data-cfilter="all">All</button>
+            ${types.map(t => `<button class="filter-btn" data-cfilter="${t}">${t.replace(/_/g,' ')}</button>`).join('')}
+        `;
+
+        filtersEl.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                filtersEl.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentConflictFilter = btn.dataset.cfilter;
+                renderConflicts(conflicts);
+            });
+        });
+
+        renderConflicts(conflicts);
+    } catch (err) {
+        document.getElementById('conflicts-list').innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+    }
+}
+
+function renderConflicts(conflicts) {
+    const list = document.getElementById('conflicts-list');
+
+    let filtered = conflicts;
+    if (currentConflictFilter !== 'all') {
+        filtered = conflicts.filter(c => c.conflict_type === currentConflictFilter);
+    }
+
+    if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty-state">No conflicts match this filter</div>';
+        return;
+    }
+
+    // Sort by severity: high first
+    const sevOrder = { high: 0, medium: 1, low: 2 };
+    filtered.sort((a, b) => (sevOrder[a.severity]||2) - (sevOrder[b.severity]||2));
+
+    list.innerHTML = filtered.slice(0, 200).map(cf => `
+        <div class="conflict-card" onclick="showConflictDetail(this)" data-conflict='${JSON.stringify(cf).replace(/'/g,"&#39;")}'>
+            <div class="cc-header">
+                <span class="severity-badge sev-${cf.severity||'low'}">${cf.severity||'low'}</span>
+                <span class="cc-type">${(cf.conflict_type||'').replace(/_/g,' ')}</span>
+                <span class="cc-issue">${cf.issue_id || cf.subject || '–'}</span>
+            </div>
+            <div class="cc-desc">${esc(cf.description || '')}</div>
+            ${(cf.evidence||[]).length > 0 ? `
+                <div class="cc-evidence">
+                    ${cf.evidence.slice(0,2).map(ev => `
+                        <div class="evidence-snippet" style="margin-top:6px;font-size:11px;">
+                            "${esc((ev.excerpt||'').substring(0,200))}"
+                            ${ev.source_id ? `<div class="ev-source"><span>📄 ${esc(ev.source_id)}</span></div>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            ` : ''}
+        </div>
+    `).join('') + (filtered.length > 200 ? `<div class="empty-state">${filtered.length - 200} more…</div>` : '');
+}
+
+function showConflictDetail(el) {
+    const cf = JSON.parse(el.dataset.conflict);
+    const p = document.getElementById('detail-panel');
+
+    p.innerHTML = `
+        <h3><span class="severity-badge sev-${cf.severity||'low'}">${cf.severity}</span> Conflict</h3>
+
+        <div class="detail-section">
+            <h4>Type</h4>
+            <div class="value">${(cf.conflict_type||'').replace(/_/g, ' ')}</div>
+        </div>
+
+        <div class="detail-section">
+            <h4>Issue / Subject</h4>
+            <div class="value" style="color:var(--accent)">${esc(cf.issue_id || cf.subject || '–')}</div>
+        </div>
+
+        <div class="detail-section">
+            <h4>Description</h4>
+            <div class="value">${esc(cf.description || '')}</div>
+        </div>
+
+        ${cf.minutes_to_close != null ? `
+        <div class="detail-section">
+            <h4>Time to Close</h4>
+            <div class="value">${cf.minutes_to_close} minutes</div>
+        </div>` : ''}
+
+        ${cf.reopen_count ? `
+        <div class="detail-section">
+            <h4>Reopens</h4>
+            <div class="value">${cf.reopen_count}</div>
+        </div>` : ''}
+
+        ${cf.conflicting_values ? `
+        <div class="detail-section">
+            <h4>Conflicting Values</h4>
+            <div class="value">${cf.conflicting_values.join(', ')}</div>
+        </div>` : ''}
+
+        ${cf.assignee_history ? `
+        <div class="detail-section">
+            <h4>Assignee History</h4>
+            <div class="value">${cf.assignee_history.join(' → ')}</div>
+        </div>` : ''}
+
+        <div class="detail-section">
+            <h4>Evidence (${(cf.evidence||[]).length})</h4>
+            ${(cf.evidence||[]).map(ev => `
+                <div class="evidence-card">
+                    <div class="excerpt">"${esc((ev.excerpt||'').substring(0,400))}"</div>
+                    <div class="ev-meta">
+                        <span>📄 ${esc(ev.source_id||'–')}</span>
+                        ${ev.source_url ? `<a href="${ev.source_url}" target="_blank">↗ GitHub</a>` : ''}
+                    </div>
+                </div>
+            `).join('')}
+            ${(cf.evidence||[]).length === 0 ? '<div class="value">No evidence attached</div>' : ''}
+        </div>
+
+        ${cf.source_url ? `
+        <div class="detail-section">
+            <h4>Source</h4>
+            <div class="value"><a href="${cf.source_url}" target="_blank" style="color:var(--accent)">${esc(cf.source_url)}</a></div>
+        </div>` : ''}
+    `;
+}
+
+/* ==================================================================
+   MERGES
+   ================================================================== */
+async function loadMerges() {
+    try {
+        const data = await apiGet('/api/merges');
+        const merges = data.merges || [];
+        const list = document.getElementById('merges-list');
+
+        if (merges.length === 0) {
+            list.innerHTML = '<div class="empty-state">No merges recorded during deduplication</div>';
+            return;
+        }
+
+        list.innerHTML = `
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${merges.length} merges recorded</div>
+            ${merges.map(m => `
+                <div class="merge-card">
+                    <div class="mc-header">
+                        <span class="merge-type-badge">${m.merge_type}</span>
+                        ${m.status === 'reversed' ? '<span style="color:var(--red);font-size:11px;font-weight:600"> REVERSED</span>' : ''}
+                    </div>
+                    <div class="mc-detail">
+                        ${esc(m.reason || '')}
+                        <br>Score: ${m.similarity_score ? m.similarity_score.toFixed(3) : '–'}
+                        · Target: ${esc(m.target_id || '')}
+                        · ${m.merged_at || '–'}
+                    </div>
+                    ${m.status === 'active' ? `<button class="btn-danger" onclick="reverseMerge('${m.merge_id}')">↩ Reverse</button>` : ''}
+                </div>
+            `).join('')}
+        `;
+    } catch (err) {
+        document.getElementById('merges-list').innerHTML = `<div class="empty-state">Error: ${err.message}</div>`;
+    }
+}
+
+async function reverseMerge(mergeId) {
+    try {
+        await apiPost(`/api/merges/${mergeId}/reverse`, {});
+        toast('Merge reversed successfully');
+        loadMerges();
+    } catch (err) {
+        toast('Failed: ' + err.message);
+    }
+}
+
+/* ==================================================================
+   TABS
+   ================================================================== */
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
+        if (tab.dataset.tab === 'graph' && network) {
+            setTimeout(() => network.fit(), 100);
+        }
+    });
+});
+
+/* ==================================================================
+   SIDEBAR FILTERS
+   ================================================================== */
+document.querySelectorAll('.sidebar .filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.sidebar .filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        renderList();
+    });
+});
+
+document.getElementById('search-input').addEventListener('input', renderList);
+
+/* ==================================================================
+   RETRIEVAL EVENT HANDLERS
+   ================================================================== */
+document.getElementById('query-btn').addEventListener('click', runRetrieval);
+document.getElementById('query-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runRetrieval();
+});
+
+/* ==================================================================
+   INIT
+   ================================================================== */
+window.addEventListener('DOMContentLoaded', () => {
+    loadData();
+});
+// Also handle resize for graph
+window.addEventListener('resize', () => {
+    if (network) {
+        const container = document.getElementById('graph-canvas');
+        if (container) {
+            const toolbar = document.querySelector('.graph-toolbar');
+            const toolbarBottom = toolbar ? toolbar.getBoundingClientRect().bottom : 100;
+            const sidebar = document.querySelector('.sidebar');
+            const sidebarW = sidebar ? sidebar.offsetWidth : 300;
+            const detailPanel = document.getElementById('detail-panel');
+            const detailW = detailPanel ? detailPanel.offsetWidth : 0;
+            container.style.width  = Math.max(window.innerWidth - sidebarW - detailW - 4, 300) + 'px';
+            container.style.height = Math.max(window.innerHeight - toolbarBottom - 4, 300) + 'px';
+        }
+        network.fit();
+    }
+});
+</script>
+</body>
+</html>
