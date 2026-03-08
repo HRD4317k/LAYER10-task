@@ -99,7 +99,7 @@ python -m api.server
 | Type | Description | Examples |
 |------|-------------|----------|
 | **Person** | GitHub user | tiangolo, dependabot |
-| **Issue** | GitHub issue or PR | issue_15028 |
+| **Issue** | GitHub issue | issue_15028 |
 | **PullRequest** | Pull request | issue_15027 |
 | **Label** | Issue label | bug, enhancement |
 | **Milestone** | Project milestone | v0.100.0 |
